@@ -904,7 +904,7 @@ function! s:StageUndo() abort
   endif
 endfunction
 
-function! s:StageDiff(diff) abort
+function! s:StageDiff(edit, diff) abort
   let [filename, section] = s:stage_info(line('.'))
   if filename ==# '' && section ==# 'staged'
     return 'Git! diff --no-ext-diff --cached'
@@ -912,13 +912,13 @@ function! s:StageDiff(diff) abort
     return 'Git! diff --no-ext-diff'
   elseif filename =~# ' -> '
     let [old, new] = split(filename,' -> ')
-    execute 'Gedit '.s:fnameescape(':0:'.new)
+    execute a:edit.' '.s:fnameescape(':0:'.new)
     return a:diff.' HEAD:'.s:fnameescape(old)
   elseif section ==# 'staged'
-    execute 'Gedit '.s:fnameescape(':0:'.filename)
+    execute a:edit.' '.s:fnameescape(':0:'.filename)
     return a:diff.' -'
   else
-    execute 'Gedit '.s:fnameescape('/'.filename)
+    execute a:edit.' '.s:fnameescape('/'.filename)
     return a:diff
   endif
 endfunction
@@ -1385,7 +1385,9 @@ function! s:Edit(cmd,bang,...) abort
         let tabs = (&go =~# 'e' || !has('gui_running')) && &stal && (tabpagenr('$') >= &stal)
         execute 'rightbelow' (&lines - &previewheight - &cmdheight - tabs - 1 - !!&laststatus).'new'
       elseif winnr('#')
-        wincmd p
+        " since we open diff in a new tab
+        " do not change focus from index window
+        "wincmd p
       else
         wincmd w
       endif
@@ -2579,12 +2581,13 @@ function! s:BufReadIndex() abort
     nnoremap <buffer> <silent> cc :<C-U>Gcommit<CR>
     nnoremap <buffer> <silent> cva :<C-U>Gcommit --amend --verbose<CR>
     nnoremap <buffer> <silent> cvc :<C-U>Gcommit --verbose<CR>
-    nnoremap <buffer> <silent> D :<C-U>execute <SID>StageDiff('Gdiff')<CR>
-    nnoremap <buffer> <silent> dd :<C-U>execute <SID>StageDiff('Gdiff')<CR>
-    nnoremap <buffer> <silent> dh :<C-U>execute <SID>StageDiff('Gsdiff')<CR>
-    nnoremap <buffer> <silent> ds :<C-U>execute <SID>StageDiff('Gsdiff')<CR>
+    nnoremap <buffer> <silent> dt :<C-U>execute <SID>StageDiff('Gtabedit', 'Gdiff')<CR>
+    nnoremap <buffer> <silent> D :<C-U>execute <SID>StageDiff('Gedit', 'Gdiff')<CR>
+    nnoremap <buffer> <silent> dd :<C-U>execute <SID>StageDiff('Gedit', 'Gdiff')<CR>
+    nnoremap <buffer> <silent> dh :<C-U>execute <SID>StageDiff('Gedit', 'Gsdiff')<CR>
+    nnoremap <buffer> <silent> ds :<C-U>execute <SID>StageDiff('Gedit', 'Gsdiff')<CR>
     nnoremap <buffer> <silent> dp :<C-U>execute <SID>StageDiffEdit()<CR>
-    nnoremap <buffer> <silent> dv :<C-U>execute <SID>StageDiff('Gvdiff')<CR>
+    nnoremap <buffer> <silent> dv :<C-U>execute <SID>StageDiff('Gedit', 'Gvdiff')<CR>
     nnoremap <buffer> <silent> p :<C-U>execute <SID>StagePatch(line('.'),line('.')+v:count1-1)<CR>
     xnoremap <buffer> <silent> p :<C-U>execute <SID>StagePatch(line("'<"),line("'>"))<CR>
     nnoremap <buffer> <silent> P :<C-U>execute <SID>StagePatch(line('.'),line('.')+v:count1-1)<CR>
