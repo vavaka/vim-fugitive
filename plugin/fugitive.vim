@@ -600,6 +600,11 @@ function! s:buffer_commit() dict abort
   return matchstr(self.spec(),'^fugitive://.\{-\}//\zs\w*')
 endfunction
 
+function! s:buffer_parent() dict abort
+  let output = system("git show --no-patch --format=%P\\n"." ".self.sha1())
+  return s:sub(output,'\n$','')
+endfunction
+
 function! s:cpath(path) abort
   if exists('+fileignorecase') && &fileignorecase
     return tolower(a:path)
@@ -698,7 +703,7 @@ function! s:buffer_up(...) dict abort
   return rev
 endfunction
 
-call s:add_methods('buffer',['getvar','setvar','getline','repo','type','spec','name','commit','path','rev','sha1','expand','containing_commit','up'])
+call s:add_methods('buffer',['getvar','setvar','getline','repo','type','spec','name','commit', 'parent', 'path','rev','sha1','expand','containing_commit','up'])
 
 " Section: Git
 
@@ -1464,8 +1469,10 @@ function! s:Edit(cmd,bang,...) abort
     let file = s:sub(file, '/$', '')
   endif
   if a:cmd ==# 'read'
+    echom 'silent %delete_|read '.s:fnameescape(file).'|silent 1delete_|diffupdate|'.line('.')
     return 'silent %delete_|read '.s:fnameescape(file).'|silent 1delete_|diffupdate|'.line('.')
   else
+    echom a:cmd.' '.s:fnameescape(file)
     return a:cmd.' '.s:fnameescape(file)
   endif
 endfunction
@@ -1860,8 +1867,10 @@ function! s:Diff(vert,keepfocus,...) abort
     endif
     let w:fugitive_diff_restore = restore
     if s:buffer().compare_age(commit) < 0
+      echom 'rightbelow '.vert.'diffsplit '.s:fnameescape(spec)
       execute 'rightbelow '.vert.'diffsplit '.s:fnameescape(spec)
     else
+      echom 'leftabove '.vert.'diffsplit '.s:fnameescape(spec)
       execute 'leftabove '.vert.'diffsplit '.s:fnameescape(spec)
     endif
     let &l:readonly = &l:readonly
@@ -2581,8 +2590,7 @@ function! s:BufReadIndex() abort
     nnoremap <buffer> <silent> cc :<C-U>Gcommit<CR>
     nnoremap <buffer> <silent> cva :<C-U>Gcommit --amend --verbose<CR>
     nnoremap <buffer> <silent> cvc :<C-U>Gcommit --verbose<CR>
-    nnoremap <buffer> <silent> dt :<C-U>execute <SID>StageDiff('Gtabedit', 'Gdiff')<CR>
-    nnoremap <buffer> <silent> D :<C-U>execute <SID>StageDiff('Gedit', 'Gdiff')<CR>
+    nnoremap <buffer> <silent> D :<C-U>execute <SID>StageDiff('Gtabedit', 'Gdiff')<CR>
     nnoremap <buffer> <silent> dd :<C-U>execute <SID>StageDiff('Gedit', 'Gdiff')<CR>
     nnoremap <buffer> <silent> dh :<C-U>execute <SID>StageDiff('Gedit', 'Gsdiff')<CR>
     nnoremap <buffer> <silent> ds :<C-U>execute <SID>StageDiff('Gedit', 'Gsdiff')<CR>
@@ -2674,6 +2682,34 @@ function! s:BufWriteIndexFile() abort
   endtry
 endfunction
 
+function! s:StatFilePath(...)
+  return matchstr(get(a:000, 0, getline('.')), '^\s\+\zs[^|]\{-\}\ze\s\+|\s\+\d\+\s\+[+-]\+$')
+endfunction
+
+function! s:JumpToFileDiff() abort
+  let filepath = s:StatFilePath()
+
+  if empty(filepath)
+    return ''
+  endif
+
+  return search('diff\s\+.\+'.filepath, 's')
+endfunction
+
+function! s:OpenFileDiff() abort
+  let filepath = s:StatFilePath()
+
+  if empty(filepath)
+    return ''
+  endif
+
+  echom s:buffer().sha1()
+  echom s:buffer().parent()
+
+  s:Diff('',0,s:buffer().sha1()))
+  return ''
+endfunction
+
 function! s:BufReadObject() abort
   try
     setlocal noro ma
@@ -2688,6 +2724,9 @@ function! s:BufReadObject() abort
     let firstline = getline('.')
     if !exists('b:fugitive_display_format') && b:fugitive_type != 'blob'
       let b:fugitive_display_format = +getbufvar('#','fugitive_display_format')
+    endif
+    if !exists('b:fugitive_word_diff_format')
+      let b:fugitive_word_diff_format = +getbufvar('#','fugitive_word_diff_format')
     endif
 
     if b:fugitive_type !=# 'blob'
@@ -2718,7 +2757,8 @@ function! s:BufReadObject() abort
         if b:fugitive_display_format
           call s:ReplaceCmd(s:repo().git_command('cat-file',b:fugitive_type,hash))
         else
-          call s:ReplaceCmd(s:repo().git_command('show','--no-color','--pretty=format:tree%x20%T%nparent%x20%P%nauthor%x20%an%x20<%ae>%x20%ad%ncommitter%x20%cn%x20<%ce>%x20%cd%nencoding%x20%e%n%n%s%n%n%b',hash))
+          let word_diff = b:fugitive_word_diff_format % 2 ? '--word-diff=plain' : '--word-diff=none'
+          call s:ReplaceCmd(s:repo().git_command('show','--stat=1000', '--patch','--no-color','--pretty=format:commit%x20%H%ntree%x20%T%nparent%x20%P%nauthor%x20%an%x20<%ae>%x20%ad%ncommitter%x20%cn%x20<%ce>%x20%cd%nencoding%x20%e%n%n%s%n%n%b',hash))
           keepjumps call search('^parent ')
           if getline('.') ==# 'parent '
             silent keepjumps delete_
@@ -2745,6 +2785,9 @@ function! s:BufReadObject() abort
         setlocal filetype=git foldmethod=syntax
         nnoremap <buffer> <silent> a :<C-U>let b:fugitive_display_format += v:count1<Bar>exe <SID>BufReadObject()<CR>
         nnoremap <buffer> <silent> i :<C-U>let b:fugitive_display_format -= v:count1<Bar>exe <SID>BufReadObject()<CR>
+        nnoremap <buffer> <silent> <CR> :call <SID>JumpToFileDiff()<CR>
+        nnoremap <buffer> <silent> D :call <SID>OpenFileDiff()<CR>
+        nnoremap <buffer> <silent> w :<C-U>let b:fugitive_word_diff_format = v:count1<Bar>exe <SID>BufReadObject()<CR>
       else
         call s:JumpInit()
       endif
